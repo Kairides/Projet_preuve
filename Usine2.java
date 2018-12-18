@@ -13,10 +13,11 @@ class Tache
 	
 	public Tache(int t, int g)
 	//@requires t> 0 &*& g > 0;
-	//@ensures tache(this, t, g);
+	//@ensures tache(this, t, g) &*& estEffectuée(this);
 	{
 		this.temps_necessaire = t;
 		this.gain = g;
+		//@close estEffectuée(this);
 	}
 	
 	
@@ -38,7 +39,7 @@ class Tache
 	
 }
 
-
+//@predicate estEmbauché(Usine usine, Travailleur travailleur) = true;
 /*@predicate travailleur(Travailleur t; int temps_dispo, int salaire_horaire, int salaire_percu) = t.temps_dispo |-> temps_dispo 
 												   &*& t.salaire_horaire |-> salaire_horaire
 												   &*& t.salaire_percu |-> salaire_percu
@@ -93,42 +94,54 @@ class Travailleur
 }
 
 
-/*@predicate usine(Usine this; int b) = this.money |-> b;@*/
+//@predicate estEffectuée(Tache tache) = true; 
+/*@predicate usine(Usine this; int b, int a) = this.gains_accumulés |-> b &*& this.depenses_salaires |-> a &*& b > 0;@*/
 
 class Usine
 {
-	private int money;
+	int gains_accumulés, depenses_salaires;
 	
 	public Usine(int depot_initial)
-	//@requires true;
-	//@ensures usine(this, depot_initial);
+	//@requires depot_initial > 0;
+	//@ensures usine(this, depot_initial, 0);
 	{
-		this.money = depot_initial;
+		this.gains_accumulés = depot_initial;
 	}
 	
 	public int get_balance()
-	//@requires usine(this, ?b);
-	//@ensures usine(this, b) &*& result == b;
+	//@requires usine(this, ?b, ?a);
+	//@ensures usine(this, b, a) &*& result == b -a;
 	{
-		return this.money;
+		return this.gains_accumulés - this.depenses_salaires;
 	}
 	
 	public void depot(int montant)
-	//@requires usine(this, ?yves);
-	//@ensures usine(this, yves + montant);
+	//@requires usine(this, ?yves, ?a) &*& montant > 0;
+	//@ensures usine(this, yves + montant, a);
 	{
-		this.money += montant;
+		this.gains_accumulés += montant;
 	}
 	
+	public void retrait(int montant)
+	//@requires usine(this, ?b, ?yves);
+	//@ensures usine(this, b, yves + montant);
+	{
+		this.depenses_salaires += montant;
+	}
+	
+	
 	public void effectuer_tache(Tache tache, Travailleur travailleur)
-	//@requires usine(this, ?yves) &*& tache(tache,?t,?g) &*& travailleur(travailleur,?t1,?s1,?sp1) &*& t1 >= t;
-	/*@ensures (g>t*s1) == true ? usine(this, yves - t*s1 + g) &*& tache(tache,t,g) &*& travailleur(travailleur, t1 - t, s1, sp1 + t*s1) :
-				      usine(this, yves) &*& tache(tache,t,g) &*& travailleur(travailleur,t1,s1,sp1) ;@*/
+	/*@requires usine(this, ?yves, ?b) &*& tache(tache,?t,?g) 
+					   &*& travailleur(travailleur,?t1,?s1,?sp1) 
+					   &*& t1 >= t &*& estEffectuée(tache)
+					   &*& estEmbauché(this, travailleur);@*/
+	/*@ensures (g>t*s1) == true ? usine(this, yves + g, b + t*s1) &*& tache(tache,t,g) &*& travailleur(travailleur, t1 - t, s1, sp1 + t*s1) &*& estEmbauché(this, travailleur):
+				      usine(this, yves, b) &*& tache(tache,t,g) &*& travailleur(travailleur,t1,s1,sp1) ;@*/
 	{
 		//@open tache(tache, _,_);
 		//@open travailleur(travailleur,_,_,_);
 		if (est_rentable(tache, travailleur)){
-			depot(-travailleur.travailler(tache.get_temps_necessaire()));
+			retrait(travailleur.travailler(tache.get_temps_necessaire()));
 			depot(tache.get_gain());
 		}
 	}
@@ -140,7 +153,22 @@ class Usine
 		return (tache.get_gain() > travailleur.get_salaire_horaire()*tache.get_temps_necessaire());
 	}
 	
+	public void embaucher(Travailleur travailleur)
+	//@requires travailleur(travailleur, ?temps_dispo, ?salaire_horaire, ?salaire_percu);
+	//@ensures travailleur(travailleur, temps_dispo, salaire_horaire, salaire_percu) &*& estEmbauché(this, travailleur);
+	{
+		//@close estEmbauché(this, travailleur);
+	}
+	
+	public void licencier(Travailleur travailleur)
+	//@requires travailleur(travailleur, ?temps_dispo, ?salaire_horaire, ?salaire_percu) &*& estEmbauché(this, travailleur);
+	//@ensures travailleur(travailleur, temps_dispo, salaire_horaire, salaire_percu);
+	{
+		//@open estEmbauché(this, travailleur);
+	}
+	
 }
+
 
 class UsineTest
 {
@@ -150,7 +178,10 @@ class UsineTest
 	{
 		Usine usine = new Usine(5000);
 		Tache tache = new Tache(25,1000);
+		Tache tache2 = new Tache(2, 47000);
 		Travailleur travailleur = new Travailleur(50,10);
+		usine.embaucher(travailleur);
+		//usine.licencier(travailleur);
 		
 		int toi = usine.get_balance();
 		assert toi == 5000;
@@ -164,8 +195,9 @@ class UsineTest
 		boolean rentable = usine.est_rentable(tache, travailleur);
 		
 		assert rentable;
-
+		
 		usine.effectuer_tache(tache, travailleur);
+		usine.effectuer_tache(tache2, travailleur);
 		
 		toi = usine.get_balance();
 		assert toi == 5750;
@@ -175,6 +207,8 @@ class UsineTest
 		
 		thunes = travailleur.get_salaire_percu();
 		assert thunes == 250;
+		
+		//usine.effectuer_tache(tache, travailleur);
 		
 	}
 }
